@@ -24,8 +24,13 @@ from Wallhaven.spiders.wallhaven import WallhavenSpider
 ##### CONSTANTS AND VARIABLES #####
 
 PATH_TEMP_DIR = '/tmp/wallhaven'
-PATH_QUERY_RESULTS = './resources/query_results.json'
+PATH_IMAGES_DIR = os.path.join(os.path.expanduser('~'),'Wallhaven Gallery')
+PATH_QUERY_RESULTS = os.path.join(os.path.join(os.getcwd(), 'resources'), 'query_results.json')
 FILE_GUI = 'gui_wallhaven.glade'
+
+print PATH_IMAGES_DIR
+print PATH_QUERY_RESULTS
+print
 
 images_list = []
 images_counter = 0
@@ -59,8 +64,7 @@ class Image:
         return self.query
 
 class Wallhaven_Crawler:
-    def __init__(self, query = 'example image'):
-        print "Crawler query = \"", query, "\""
+    def __init__(self, query):
         self.query = query
         
         # Creation of spider from query
@@ -86,14 +90,68 @@ class Wallhaven_Crawler:
         reactor.run() # The script will block here until the 'spider_closed' signal is sent
         #log.msg('Reactor stopped.')
 
+class Wallhaven_BD():
+    server_name = 'localhost'
+    user_name = 'wallhaven_user'
+    password = 'wallhaven'
+    database_name = 'WallhavenGallery'
+    table_name = 'Image'
+    
+    def __init__(self):
+        self.connection = MySQLdb.connect(host = self.server_name, user = self.user_name, passwd = self.password, db = self.database_name)
+        self.cursor = self.connection.cursor(MySQLdb.cursors.DictCursor)
+        
+        if not self.table_exists():
+            self.create_database_table()
+        
+    def table_exists(self):
+        self.cursor.execute("SHOW TABLES LIKE '" + self.table_name + "'")
+        
+        return (self.cursor.rowcount > 0)
+        
+    def create_database_table(self):
+        query = "CREATE TABLE " + self.table_name
+        query += "(Name VARCHAR(50) PRIMARY KEY, Width INT, Height INT,"
+        query += "Format VARCHAR(10), Url VARCHAR(150), Query VARCHAR(500), Local_path VARCHAR(1000))"
+        self.cursor.execute(query)
+        
+        self.connection.commit()
+        
+    def insert_image(self, name, width, height, format, url, query, local_path):
+        consulta = "INSERT INTO " + self.table_name + " VALUES('" + name + "', " + str(width) + ", "
+        consulta += str(height) + ", '" + format + "', '" + url + "', '" + query + "', '" + local_path + "')"
+        self.cursor.execute(consulta)
+        
+        self.connection.commit()
+        
+        if self.cursor.rowcount == 1:
+            success = True
+        else:
+            success = False
+        
+        return success
+        
+    def select_image(self, name):
+        self.cursor.execute("SELECT * FROM " + self.table_name + " WHERE Name = '" + name + "'")
+        
+        return self.cursor.fetchone()
+    
+    def select_all_images(self):
+        self.cursor.execute("SELECT * FROM " + self.table_name)
+        
+        return self.cursor.fetchall()
+        
+    def close_connection(self):
+        self.cursor.close()
+        self.connection.close()
+
 class Wallhaven_GUI:
     def __init__(self):
-        # Data model link
-        #self.tabla_bd = Wallhaven_BD()
+        # Temporal local storage link
+        self.create_temporal_directory()
         
-        # Local storage link
-        self.local_path_dir = PATH_TEMP_DIR + datetime.datetime.now().strftime("%Y_%m_%d %H_%M_%S")
-        os.mkdir(self.local_path_dir)
+        # Data model link
+        self.database_table = Wallhaven_BD()
         
         # Interface link
         self.builder = Gtk.Builder()
@@ -101,7 +159,8 @@ class Wallhaven_GUI:
         self.handlers = { "onExit": self.on_exit,
                         "onSearch": self.on_search,
                         "onNextImage": self.on_next_image,
-                        "onPreviousImage": self.on_previous_image
+                        "onPreviousImage": self.on_previous_image,
+                        "onSaveImage": self.on_save_image
                         }
         
         self.builder.connect_signals(self.handlers)
@@ -115,7 +174,9 @@ class Wallhaven_GUI:
         
         searchQueryEntry = self.builder.get_object("searchQueryEntry")
         query = searchQueryEntry.get_text()
-        print "Query = \"", query, "\""
+        
+        if not query: # If query is empty
+            query = 'example image'
         
         self.start_crawler(query)
         self.clean_query_results()
@@ -170,16 +231,51 @@ class Wallhaven_GUI:
             button = self.builder.get_object("previousButton")
             button.set_sensitive(False)
         
+    def on_save_image(self, button):
+        global images_list
+        global image_index
+        
+        image = images_list[image_index]
+        url = image.get_url()
+        local_temp_path = os.path.join(self.local_path_dir, url.split('/')[-1])
+        local_path_image = os.path.join(PATH_IMAGES_DIR, image.get_name() + '.' + image.get_format())
+        
+        # Creation of images directory if not exists
+        if not self.exists_images_directory():
+            self.create_images_directory()
+        
+        # Move of image from temporal directory to images directory
+        os.rename(local_temp_path, local_path_image)
+        print "Info: Moved '" + local_temp_path + "' to '" + local_path_image + "'"
+        
+        # Insertion in database table
+        self.database_table.insert_image(
+            image.get_name(),
+            image.get_width(),
+            image.get_height(),
+            image.get_format(),
+            url,
+            image.get_query(),
+            local_path_image
+            )
+    
     def on_exit(self, window):
+        # Removal of temporary directory and its content
         shutil.rmtree(self.local_path_dir)
+        print "Info: Removed temporary directory '" + self.local_path_dir + "'"
+        
         Gtk.main_quit()
     
+    def create_temporal_directory(self):
+        self.local_path_dir = PATH_TEMP_DIR + datetime.datetime.now().strftime("%Y_%m_%d %H_%M_%S")
+        try:
+            os.mkdir(self.local_path_dir)
+            print "Info: Created temporary directory '" + self.local_path_dir + "'"
+        except:
+            sys.exit("Error: Directory '" + self.local_path_dir + "' could not be created")
+    
     def start_crawler(self, query):
-        if query: # If query is not empty
-            crawler = Wallhaven_Crawler(query)
-        else:
-            crawler = Wallhaven_Crawler()
-        
+        crawler = Wallhaven_Crawler(query)
         crawler.start()
     
     def clean_query_results(self):
@@ -231,16 +327,33 @@ class Wallhaven_GUI:
         imageLabel.set_label(url)
     
     def download_image(self, url):
-        image_local_path = self.local_path_dir + '/' + url.split('/')[-1]
-        urllib.urlretrieve(url, image_local_path)
-        return image_local_path
+        image_local_path = os.path.join(self.local_path_dir, url.split('/')[-1])
+        try:
+            urllib.urlretrieve(url, image_local_path)
+            print "Info: Downloaded image from '" + url + "' into temporary image '" + self.local_path_dir + "'"
+            
+            return image_local_path
+        except:
+            sys.exit("Error: Could not download image from '" + url + "'")
         
     def resize_and_set_image(self, image_local_path, width = 600, height = 450):
         gtkImage = self.builder.get_object('image')
         pixbuf = Pixbuf.new_from_file_at_size(image_local_path, width, height)
         gtkImage.set_from_pixbuf(pixbuf)
         gtkImage.show()
-
+    
+    def exists_images_directory(self):
+        return os.path.isdir(PATH_IMAGES_DIR)
+    
+    def create_images_directory(self):
+        try:
+            os.mkdir(PATH_IMAGES_DIR)
+            print "Info: Created images directory '" + PATH_IMAGES_DIR + "'"
+            
+            return True
+        except:
+            sys.exit("Error: Directory '" + PATH_IMAGES_DIR + "' could not be created")
+    
 def main():
     main_window = Wallhaven_GUI()
     Gtk.main()

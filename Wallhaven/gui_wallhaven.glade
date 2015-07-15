@@ -449,6 +449,8 @@
             <property name="visible">True</property>
             <property name="can_focus">True</property>
             <property name="receives_default">True</property>
+            <signal name="activate" handler="onSaveImage" swapped="no"/>
+            <signal name="clicked" handler="onSaveImage" swapped="no"/>
           </object>
           <packing>
             <property name="left_attach">1</property>
