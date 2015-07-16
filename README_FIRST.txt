@@ -22,7 +22,7 @@ e.g.: In a GNU/Linux based O.S., using "bash" prompt and "MySQL Server", script 
         $ > mysql -u root -p < "<local_path_to_sql_file>/database_configuration.sql"
 
 2. Edit database connection configuration, so your own database, database user, databae table, etc... can be used instead. To do this
-just modify values associated to variables in lines from 90 to 94 from file "main_wallhaven.py" in "Wallhaven" directory.
+just modify values associated to variables in lines from 97 to 101 from file "main_wallhaven.py" in "Wallhaven" directory.
 
 ******************************
 Execution
@@ -33,3 +33,7 @@ Application file is found in "Wallhaven" directory.
 e.g.: In a GNU/Linux based O.S., using "bash" prompt application run as follows:
         
         $ > python ./Wallhaven/main_wallhaven.py
+
+IMPORTANT: ONLY ONE SEARCH PER APPLICATION EXECUTION IS ALLOWED DUE TO DIFFICULTIES IN CRAWLING THE SAME SPIDER WITH ONE REACTOR RUNNING.
+IN ORDER TO PERFORM A NEW SEARCH, APPLICATION MUST BE CLOSED AND OPENED.
+
